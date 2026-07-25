@@ -1,1 +1,4 @@
 /local_numinamath/
+.venv
+__pycache__/
+*.pyc
