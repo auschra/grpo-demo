@@ -11,19 +11,21 @@ device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 
 # Hyperparams
 model_name = "Qwen/Qwen3-0.6B"
-group_size = 2                           # number of generations in each group
-input_batch_size = 2                      # number of input questions to process at once
+group_size = 5                           # number of generations in each group
+input_batch_size = 1                      # number of input questions to process at once
 epsilon = 0.2
 beta = 0.04
-lr = 1e-3
-weight_decay = 1e-1
+lr = 1e-5
+weight_decay = 0.01
 warmup_steps = 2000
 max_steps = 300
 
 
 
 def collate_fn(batch):
-    questions = [example["problem"] for example in batch]
+    system_prompt = "Solve the following math problem. Put your final answer inside \\boxed{}.\n\nProblem: "
+    
+    questions = [system_prompt + example["problem"] for example in batch]
     answers = [example["solution"] for example in batch]
 
     return questions, answers
@@ -44,7 +46,7 @@ ds = load_from_disk('./local_numinamath')
 dataloader = DataLoader(ds, batch_size=input_batch_size, shuffle=True, collate_fn=collate_fn)
 optimizer = AdamW(policy_model.parameters(), lr=lr, weight_decay=weight_decay)
 
-def calculate_reward(generation, gold):
+def calculate_reward(generations, golds):
     """
     Check the ground truth label matches the generation for batch, assign 1.0 reward if so, 0.0 if not
     return:
@@ -53,10 +55,8 @@ def calculate_reward(generation, gold):
 
     group_rewards = []
 
-    # Parse true answer first
-    gold_parse = parse(gold)
-
-    for generation in generation, gold:
+    for generation, gold in zip(generations, golds, strict=True):      
+        gold_parse = parse(gold)
         answer_parse = parse(generation)
         is_correct = verify(gold_parse, answer_parse)
         group_rewards.append(1.0 if is_correct else 0.0)
@@ -155,9 +155,12 @@ def train_step(prompts, true_answer):
     loss.backward()
     optimizer.step()
 
-    print(f"Loss: {loss.item():.2f}, mean reward: {group_mean.item():.2f}")
+    print(f"Loss: {loss.item():.4f}, batch mean reward: {rewards.mean().item():.4f}")
 
-
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif torch.backends.mps.is_available():
+        torch.mps.empty_cache()
 
 print("Training start")
 global_step = 0
