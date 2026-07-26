@@ -17,9 +17,8 @@ epsilon = 0.2
 beta = 0.04
 lr = 1e-5
 weight_decay = 0.01
-warmup_steps = 2000
 max_steps = 300
-
+warmup_steps = max_steps/10    
 
 
 def collate_fn(batch):
@@ -36,12 +35,19 @@ tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = 'left'
 
 # setup policy and frozen reference model
-policy_model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
-reference_model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+policy_model = AutoModelForCausalLM.from_pretrained(model_name, 
+                                                    torch_dtype=torch.bfloat16, 
+                                                    attn_implementation="flash_attention_2").to(device)
+reference_model = AutoModelForCausalLM.from_pretrained(model_name,
+                                                    torch_dtype=torch.bfloat16,
+                                                    attn_implementation="flash_attention_2").to(device)
+
+# frozen
 for param in reference_model.parameters():
     param.requires_grad = False
 reference_model.eval()
 
+# Load from local file or use load_dataset
 ds = load_from_disk('./local_numinamath')
 dataloader = DataLoader(ds, batch_size=input_batch_size, shuffle=True, collate_fn=collate_fn)
 optimizer = AdamW(policy_model.parameters(), lr=lr, weight_decay=weight_decay)
